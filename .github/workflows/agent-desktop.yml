@@ -1,0 +1,27 @@
+name: Desktop Agent packages
+on:
+  workflow_dispatch:
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements-agent-build.txt
+      - run: python -m pip install -e '.[test]'
+      - run: python -m pytest -q
+      - run: python scripts/check_agent_desktop.py
+      - run: python scripts/build_agent.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: delta-agent-${{ matrix.os }}
+          path: |
+            dist/agent/*.dmg
+            dist/agent/*.zip
+            dist/agent/*.tar.gz
