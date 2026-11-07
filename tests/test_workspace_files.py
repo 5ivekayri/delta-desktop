@@ -27,3 +27,15 @@ def test_agent_workspace_policy_and_sources(tmp_path):
     executor.permission=lambda _: 'allow'
     cancel=threading.Event();cancel.set()
     assert executor.execute({'command_id':'expired','action':'workspace_files','payload':payload},cancel)['error_code']=='COMMAND_EXPIRED'
+
+
+def test_import_never_overwrites_an_oversized_existing_file(tmp_path):
+    from delta_contracts.devices import WorkspaceFilesPayload
+    from delta_contracts.workspace_files import MAX_FILE
+    import pytest
+    store=FileStore(tmp_path);key=str(uuid4());directory=store.directory(key);directory.mkdir()
+    file=directory/'large.docx'
+    with file.open('wb') as f:f.truncate(MAX_FILE+1)
+    with pytest.raises(ValueError):
+        store.execute(WorkspaceFilesPayload(workspace_id=key,operation='write',path='large.docx',content_base64='aGk='))
+    assert file.stat().st_size==MAX_FILE+1
