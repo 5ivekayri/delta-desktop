@@ -10,7 +10,7 @@ from delta_agent.platforms.linux import LinuxPlatformAdapter
 def entry(root, name, extra=''):
     root.mkdir(parents=True, exist_ok=True)
     file = root / name
-    file.write_text('[Desktop Entry]\nType=Application\nName=Test App\nExec=/usr/bin/true %U\n' + extra)
+    file.write_text('[Desktop Entry]\nType=Application\nName=Test App\nExec=/usr/bin/true %U\n' + extra, encoding='utf-8')
     return file
 
 

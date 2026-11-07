@@ -1,10 +1,19 @@
+import pytest
+
 from delta_agent.inventory import inspect_applications, model_catalogue
 from delta_agent.settings import DesktopSettings
 
 
+@pytest.fixture(autouse=True)
+def linux_executables(monkeypatch):
+    # The fixture describes Linux entries, even when the test host is Windows.
+    monkeypatch.setattr("delta_agent.inventory.shutil.which",
+                        lambda command: "/usr/bin/true" if command == "/usr/bin/true" else None)
+
+
 def entry(root, name, extra=''):
     root.mkdir(exist_ok=True)
-    (root/name).write_text('[Desktop Entry]\nType=Application\nName='+name+'\nExec=/usr/bin/true %U\n'+extra)
+    (root/name).write_text('[Desktop Entry]\nType=Application\nName='+name+'\nExec=/usr/bin/true %U\n'+extra, encoding='utf-8')
 
 
 def test_audit_includes_excluded_and_missing_without_executing(tmp_path):
