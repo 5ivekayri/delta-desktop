@@ -96,7 +96,7 @@ class ApprovalBroker(QObject):
         title.setStyleSheet('font-size:20px;font-weight:600')
         layout.addWidget(title)
         layout.addWidget(QLabel('Запрос от подключённого сервера Delta на этот компьютер.'))
-        detail = payload.get('url') or payload.get('path') or {'browser':'Браузер','vscode':'Visual Studio Code'}.get(payload.get('app_id'), 'Имя компьютера, система и версия агента')
+        detail = payload.get('app_name') or payload.get('url') or payload.get('path') or {'browser':'Браузер','vscode':'Visual Studio Code'}.get(payload.get('app_id'), 'Имя компьютера, система и версия агента')
         target = QTextEdit()
         target.setReadOnly(True)
         target.setPlainText(detail)
@@ -198,7 +198,7 @@ class AgentWorker(QThread):
                 adapter.open_path = self.opener.open_path
             await run_agent(s.server, s.token.get_secret_value(), s.name, self.directory,
                             s.allowed_roots, capabilities=s.capabilities,
-                            allowed_apps=s.allowed_apps, on_event=self.event.emit, adapter=adapter,
+                            allowed_apps=s.allowed_apps + (['*'] if s.allow_installed_apps else []), on_event=self.event.emit, adapter=adapter,
                             permission=s.permission, confirm=self.approvals.confirm if self.approvals else None)
         try:
             asyncio.run(work())
@@ -371,7 +371,9 @@ class AgentWindow(QMainWindow):
         self.urls.hide()
         self.vscode = QCheckBox('Открывать Visual Studio Code')
         self.browser = QCheckBox('Открывать браузер')
-        for check in [self.vscode, self.browser]:
+        self.installed_apps = QCheckBox('Открывать установленные приложения (Finder и другие)')
+        self.installed_apps.setChecked(True)
+        for check in [self.installed_apps, self.vscode, self.browser]:
             form.addRow(check)
         self.roots = QListWidget()
         self.roots.setMaximumHeight(90)
@@ -439,6 +441,7 @@ class AgentWindow(QMainWindow):
             self.name.setText(settings.name)
             self.username.setText(settings.username)
             self.urls.setChecked(settings.allow_urls)
+            self.installed_apps.setChecked(settings.allow_installed_apps)
             self.vscode.setChecked('vscode' in settings.allowed_apps)
             self.browser.setChecked('browser' in settings.allowed_apps)
             self.roots.addItems(settings.allowed_roots)
@@ -470,6 +473,7 @@ class AgentWindow(QMainWindow):
             settings = DesktopSettings(server=self.server.text(), name=self.name.text().strip(),
                 username=self.username.text().strip(), token=old.token if old else 'pending-login-token',
                 allowed_roots=[self.roots.item(i).text() for i in range(self.roots.count())],
+                allow_installed_apps=self.installed_apps.isChecked(),
                 allow_urls=self.command_permissions['open_url'].currentData() != 'deny', allowed_apps=[name for name, check in
                     [('vscode', self.vscode), ('browser', self.browser)] if check.isChecked()],
                 autostart=self.autostart.isChecked(), auto_connect=self.auto_connect.isChecked(),
@@ -561,6 +565,7 @@ class AgentWindow(QMainWindow):
         try:
             settings = DesktopSettings(server=self.server.text(), token="pending-login-token", username=self.username.text().strip(),
                 name=self.name.text().strip(), allowed_roots=[self.roots.item(i).text() for i in range(self.roots.count())],
+                allow_installed_apps=self.installed_apps.isChecked(),
                 allow_urls=self.command_permissions['open_url'].currentData() != 'deny', allowed_apps=[name for name, check in
                     [('vscode', self.vscode), ('browser', self.browser)] if check.isChecked()],
                 autostart=self.autostart.isChecked(), auto_connect=self.auto_connect.isChecked(),

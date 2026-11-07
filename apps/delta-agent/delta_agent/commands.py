@@ -14,7 +14,13 @@ class CommandExecutor:
         self.platform = platform
         self.allowed_roots = [Path(root).expanduser().resolve() for root in allowed_roots]
         self.capabilities = set(platform.capabilities if capabilities is None else capabilities)
-        self.allowed_apps = set(['browser', 'vscode'] if allowed_apps is None else allowed_apps)
+        self.allowed_apps = set(['browser', 'vscode', '*'] if allowed_apps is None else allowed_apps)
+
+    def applications(self):
+        if '*' not in self.allowed_apps and not any(key.startswith('installed-') for key in self.allowed_apps):
+            return {}
+        items = self.platform.installed_applications()
+        return {key:app for key,app in items.items() if '*' in self.allowed_apps or key in self.allowed_apps}
 
     def execute(self, message: dict, cancelled=None) -> dict:
         command_id = str(message.get("command_id", ""))
@@ -24,8 +30,11 @@ class CommandExecutor:
                 raise ValueError('Capability is disabled locally')
             payload = PAYLOAD_SCHEMAS[command.action].model_validate(command.payload)
             # Validate the target before displaying any approval or invoking the OS.
-            if command.action == 'open_app' and payload.app_id not in self.allowed_apps:
-                raise ValueError('Application is disabled locally')
+            application = None
+            if command.action == 'open_app':
+                application = self.applications().get(payload.app_id)
+                if application is None and payload.app_id not in self.allowed_apps.intersection({'browser','vscode'}):
+                    return CommandResult(command_id=command_id, success=False, message='Приложение не установлено или запрещено на этом компьютере.', error_code='APP_NOT_AVAILABLE').model_dump()
             if command.action == 'open_path':
                 path = Path(payload.path).expanduser().resolve(strict=True)
                 if not path.is_dir() or not any(path.is_relative_to(root) for root in self.allowed_roots):
@@ -41,7 +50,10 @@ class CommandExecutor:
                 return CommandResult(command_id=command_id, success=False,
                     message='Запрос больше не действителен.', error_code='COMMAND_EXPIRED').model_dump()
             if policy == 'ask':
-                if not self.confirm or not self.confirm(command.action, payload.model_dump(), command.expires_at, cancelled):
+                details = payload.model_dump()
+                if application is not None:
+                    details['app_name'] = application.name
+                if not self.confirm or not self.confirm(command.action, details, command.expires_at, cancelled):
                     return CommandResult(command_id=command_id, success=False,
                         message='Команда не подтверждена на компьютере.', error_code='APPROVAL_DECLINED').model_dump()
             elif policy != 'allow':
@@ -55,7 +67,10 @@ class CommandExecutor:
             elif command.action == 'open_url':
                 self.platform.open_url(payload.url)
             elif command.action == 'open_app':
-                self.platform.open_app(payload.app_id)
+                if application is not None:
+                    self.platform.open_installed_app(payload.app_id)
+                else:
+                    self.platform.open_app(payload.app_id)
             elif command.action == 'open_path':
                 # Recheck symlinks after the user has spent time on the dialog.
                 resolved = Path(payload.path).resolve(strict=True)

@@ -50,6 +50,7 @@ class DesktopSettings(BaseModel):
     allowed_roots: list[str] = Field(default_factory=list)
     allow_urls: bool = False
     allowed_apps: list[str] = Field(default_factory=list)
+    allow_installed_apps: bool = True
     autostart: bool = False
     auto_connect: bool = True
     access_mode: Literal['confirm', 'full'] = 'confirm'
@@ -73,7 +74,7 @@ class DesktopSettings(BaseModel):
     @field_validator('allowed_apps')
     @classmethod
     def valid_apps(cls, values):
-        if not set(values) <= {'vscode', 'browser'}:
+        if not all(value in {'vscode', 'browser'} or (value.startswith('installed-') and len(value)==34 and all(c in '0123456789abcdef' for c in value[10:])) for value in values):
             raise ValueError('Неизвестное приложение')
         return sorted(set(values))
 
@@ -92,7 +93,7 @@ class DesktopSettings(BaseModel):
             result.append('open_url')
         if self.allowed_roots:
             result.append('open_path')
-        if self.allowed_apps:
+        if self.allowed_apps or self.allow_installed_apps:
             result.append('open_app')
         return [action for action in result if self.permission(action) != "deny"]
 
