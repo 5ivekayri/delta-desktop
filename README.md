@@ -49,3 +49,5 @@ Workflow GitHub Actions запускается вручную. Windows runtime �
 /System/Library/CoreServices (включая Finder). Подтверждены контрактные тесты
 маршрутизации на другой Agent, тесты macOS-адаптера и Qt smoke на Linux; реальное
 окно Finder проверяется после установки новой сборки на Mac.
+
+[Управление приложениями и описание экрана](docs/DESKTOP_ACTIONS.md)

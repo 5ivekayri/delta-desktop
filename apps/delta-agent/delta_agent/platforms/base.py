@@ -8,11 +8,11 @@ import webbrowser
 
 class BasePlatformAdapter(ABC):
     os_name = "unknown"
-    capabilities = ["system_info", "open_url", "open_path", "open_app"]
+    capabilities = ["system_info", "open_url", "open_path", "open_app", "close_app", "minimize_app", "capture_screen"]
 
     def get_system_info(self) -> dict:
         return {"hostname": socket.gethostname(), "os": self.os_name,
-                "architecture": platform.machine(), "username": getpass.getuser(), "agent_version": "0.2.0"}
+                "architecture": platform.machine(), "username": getpass.getuser(), "agent_version": "0.3.0"}
 
     def open_url(self, url: str):
         if not webbrowser.open(url):
@@ -36,6 +36,17 @@ class BasePlatformAdapter(ABC):
             os.startfile(str(app.path))
         else:
             raise ValueError('Unsupported platform')
+
+    def manage_app(self, app_id: str, action: str):
+        from delta_agent.window_actions import manage_app
+        app = self.installed_applications().get(app_id)
+        if app is None:
+            raise ValueError('Application no longer installed')
+        return manage_app(self.os_name, app, action)
+
+    def capture_screen(self):
+        from delta_agent.screen_capture import capture_screen
+        return capture_screen(self.os_name)
 
     def run(self, arguments: list[str]):
         subprocess.run(arguments, check=True, timeout=10, stdin=subprocess.DEVNULL,

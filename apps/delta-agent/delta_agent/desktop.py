@@ -1,11 +1,13 @@
 """Cross-platform Qt desktop client for the existing Agent protocol."""
 import asyncio
 import html
+import json
 from concurrent.futures import Future, TimeoutError as FutureTimeout, InvalidStateError
 from datetime import datetime
 import socket
 import time
 import sys
+import os
 
 from PySide6.QtCore import QObject, QLockFile, QThread, QTimer, Qt, Signal, Slot, QUrl, QPointF
 from PySide6.QtGui import QAction, QPalette, QColor, QDesktopServices, QFont, QIcon, QPainter, QPixmap, QPen, QPolygonF
@@ -25,10 +27,33 @@ from .settings import DesktopSettings, config_directory, load_settings, save_set
 class DesktopOpener(QObject):
     """Dispatch native GUI opening on the UI thread, after Agent policy checks."""
     requested = Signal(object)
+    screen_requested = Signal(object)
 
     def __init__(self):
         super().__init__()
         self.requested.connect(self.open_native)
+        self.screen_requested.connect(self.capture_native)
+
+    def capture_screen(self):
+        time.sleep(.25)  # Allow the consent dialog to disappear before capture.
+        future = Future()
+        self.screen_requested.emit(future)
+        try:
+            return future.result(timeout=10)
+        except FutureTimeout:
+            future.cancel()
+            raise RuntimeError('Screen capture timed out') from None
+
+    @Slot(object)
+    def capture_native(self, future):
+        if not future.set_running_or_notify_cancel():
+            return
+        try:
+            from .screen_capture import encode_image
+            screen = QApplication.primaryScreen()
+            future.set_result(encode_image(screen.grabWindow(0).toImage()))
+        except Exception as error:
+            future.set_exception(error)
 
     @Slot(object)
     def open_native(self, request):
@@ -57,6 +82,9 @@ COMMAND_LABELS = {
     'open_url': 'Открытие ссылок',
     'open_path': 'Открытие папок',
     'open_app': 'Запуск приложений',
+    'close_app': 'Закрытие приложений',
+    'minimize_app': 'Сворачивание приложений',
+    'capture_screen': 'Снимок экрана → описание через OpenRouter',
 }
 
 
@@ -97,6 +125,8 @@ class ApprovalBroker(QObject):
         layout.addWidget(title)
         layout.addWidget(QLabel('Запрос от подключённого сервера Delta на этот компьютер.'))
         detail = payload.get('app_name') or payload.get('url') or payload.get('path') or {'browser':'Браузер','vscode':'Visual Studio Code'}.get(payload.get('app_id'), 'Имя компьютера, система и версия агента')
+        if action == 'capture_screen':
+            detail = 'Сделать один снимок текущего экрана и отправить его модели через OpenRouter для описания. На снимок может попасть личная информация. Изображение не сохраняется в истории Delta; действуют правила обработки данных OpenRouter и провайдера модели.'
         target = QTextEdit()
         target.setReadOnly(True)
         target.setPlainText(detail)
@@ -131,7 +161,8 @@ class ApprovalBroker(QObject):
         tick()
         dialog.finished.connect(timer.stop)
         dialog.finished.connect(dialog.deleteLater)
-        self.window.show_window()
+        if action != 'capture_screen':
+            self.window.show_window()
         dialog.open()
         deny.setFocus()
 
@@ -194,6 +225,8 @@ class AgentWorker(QThread):
                 save_settings(s, self.directory)
                 self.event.emit({'event':'authenticated'})
             adapter = get_platform()
+            if sys.platform == 'win32' or (sys.platform.startswith('linux') and os.environ.get('XDG_SESSION_TYPE') != 'wayland'):
+                adapter.capture_screen = self.opener.capture_screen
             if sys.platform == 'darwin':
                 adapter.open_path = self.opener.open_path
             await run_agent(s.server, s.token.get_secret_value(), s.name, self.directory,
@@ -326,6 +359,32 @@ class AgentWindow(QMainWindow):
         self.refresh_button.clicked.connect(self.refresh_devices)
         devices_layout.addWidget(self.refresh_button)
         tabs.addTab(device_page, 'Устройства')
+        inventory_page = QWidget()
+        inventory_layout = QVBoxLayout(inventory_page)
+        self.inventory_summary = QLabel('Проверка ярлыков и локальных разрешений без запуска приложений.')
+        self.inventory_summary.setWordWrap(True)
+        inventory_layout.addWidget(self.inventory_summary)
+        self.inventory_search = QLineEdit()
+        self.inventory_search.setPlaceholderText('Название или псевдоним приложения')
+        self.inventory_search.textChanged.connect(self.filter_inventory)
+        inventory_layout.addWidget(self.inventory_search)
+        self.inventory_list = QListWidget()
+        inventory_layout.addWidget(self.inventory_list)
+        self.inventory_rows = []
+        scan = QPushButton('Проверить приложения')
+        scan.clicked.connect(self.refresh_inventory)
+        inventory_layout.addWidget(scan)
+        publish = QPushButton('Обновить каталог на сервере')
+        publish.setToolTip('Переподключает Agent. Ожидающие подтверждения будут отменены.')
+        publish.clicked.connect(self.publish_inventory)
+        inventory_layout.addWidget(publish)
+        export = QPushButton('Экспорт каталога для модели…')
+        export.clicked.connect(self.export_inventory)
+        inventory_layout.addWidget(export)
+        index = tabs.addTab(inventory_page, 'Приложения')
+        tabs.currentChanged.connect(lambda selected: self.refresh_inventory()
+                                    if selected == index and not self.inventory_rows else None)
+
         self.pages.addWidget(dashboard)
         self.setCentralWidget(panel)
         self.settings_dialog = QDialog(self)
@@ -350,20 +409,22 @@ class AgentWindow(QMainWindow):
         self.command_permissions = {}
         for action, label in COMMAND_LABELS.items():
             choice = QComboBox()
-            for text, value in [('По общему режиму', 'inherit'), ('Запретить', 'deny'),
-                                ('Спрашивать', 'ask'), ('Разрешить', 'allow')]:
+            options = [('По общему режиму', 'inherit'), ('Запретить', 'deny'), ('Спрашивать', 'ask'), ('Разрешить', 'allow')]
+            if action == 'capture_screen':
+                options = [('Всегда спрашивать', 'inherit'), ('Запретить', 'deny')]
+            for text, value in options:
                 choice.addItem(text, value)
             self.command_permissions[action] = choice
             form.addRow(label, choice)
         def update_mode_labels():
             label = 'По режиму: спрашивать' if self.access_mode.currentData() == 'confirm' else 'По режиму: разрешить'
-            for choice in self.command_permissions.values():
-                choice.setItemText(0, label)
+            for action, choice in self.command_permissions.items():
+                choice.setItemText(0, 'Всегда спрашивать' if action == 'capture_screen' else 'По умолчанию: спрашивать' if action == 'close_app' else label)
         self.access_mode.currentIndexChanged.connect(update_mode_labels)
         update_mode_labels()
         self.command_permissions['open_url'].setCurrentIndex(self.command_permissions['open_url'].findData('deny'))
         form.addRow(QLabel('Доступные приложения и папки'))
-        self.server = QLineEdit('http://192.168.0.28:8081')
+        self.server = QLineEdit('http://localhost:8081')
         self.name = QLineEdit(socket.gethostname())
         connection_form.addRow('Сервер Delta', self.server)
         connection_form.addRow('Имя компьютера', self.name)
@@ -371,7 +432,7 @@ class AgentWindow(QMainWindow):
         self.urls.hide()
         self.vscode = QCheckBox('Открывать Visual Studio Code')
         self.browser = QCheckBox('Открывать браузер')
-        self.installed_apps = QCheckBox('Открывать установленные приложения (Finder и другие)')
+        self.installed_apps = QCheckBox('Открывать установленные приложения')
         self.installed_apps.setChecked(True)
         for check in [self.installed_apps, self.vscode, self.browser]:
             form.addRow(check)
@@ -452,6 +513,47 @@ class AgentWindow(QMainWindow):
                 choice.setCurrentIndex(choice.findData(settings.command_permissions.get(action, 'deny' if action == 'open_url' and not settings.allow_urls else 'inherit')))
             if settings.auto_connect and settings.username:
                 QTimer.singleShot(0, lambda: self.start_worker(settings))
+
+    def refresh_inventory(self):
+        from .inventory import inspect_applications
+        self.inventory_rows = inspect_applications(get_platform().os_name, self.saved)
+        total = len(self.inventory_rows)
+        available = sum(row['status'] == 'catalogued' for row in self.inventory_rows)
+        permitted = sum(row['status'] == 'catalogued' and row['access'] != 'deny' for row in self.inventory_rows)
+        self.inventory_summary.setText(
+            f'Проверено ярлыков: {total}. В каталоге: {available}. Разрешено: {permitted}.\n'
+            'Проверка не запускает приложения и не гарантирует успешный старт.')
+        self.filter_inventory()
+
+    def filter_inventory(self):
+        self.inventory_list.clear()
+        query = self.inventory_search.text().casefold().strip()
+        labels = {'ask': 'с подтверждением', 'allow': 'разрешено', 'deny': 'недоступно'}
+        for row in self.inventory_rows:
+            if query and query not in ' '.join([row['name'], *row['aliases']]).casefold():
+                continue
+            self.inventory_list.addItem(f"{row['name']} — {labels[row['access']]}\n{row['reason']}")
+            self.inventory_list.item(self.inventory_list.count()-1).setToolTip(row['path'])
+
+    def publish_inventory(self):
+        self.refresh_inventory()
+        if self.saved and self.worker:
+            self.pending_settings = self.saved
+            self.disconnect_agent()
+        elif self.saved and self.saved.token.get_secret_value() not in {'pending-login-token', 'logged-out-session'}:
+            self.start_worker(self.saved)
+
+    def export_inventory(self):
+        from .inventory import model_catalogue
+        self.refresh_inventory()
+        filename, _ = QFileDialog.getSaveFileName(self, 'Каталог для модели', 'delta-applications.json', 'JSON (*.json)')
+        if filename:
+            try:
+                from pathlib import Path
+                Path(filename).write_text(json.dumps({'applications': model_catalogue(self.inventory_rows)},
+                    ensure_ascii=False, indent=2), encoding='utf-8')
+            except OSError:
+                QMessageBox.warning(self, 'Не удалось сохранить', 'Выберите доступную папку для файла.')
 
     def open_settings(self):
         self.settings_dialog.show()

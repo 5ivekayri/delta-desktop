@@ -5,6 +5,7 @@ from subprocess import TimeoutExpired
 from pydantic import ValidationError
 from delta_contracts.devices import CommandMessage, CommandResult, PAYLOAD_SCHEMAS
 from .platforms.base import BasePlatformAdapter
+from .window_actions import WindowNotFoundError
 
 
 class CommandExecutor:
@@ -31,9 +32,9 @@ class CommandExecutor:
             payload = PAYLOAD_SCHEMAS[command.action].model_validate(command.payload)
             # Validate the target before displaying any approval or invoking the OS.
             application = None
-            if command.action == 'open_app':
+            if command.action in {'open_app', 'close_app', 'minimize_app'}:
                 application = self.applications().get(payload.app_id)
-                if application is None and payload.app_id not in self.allowed_apps.intersection({'browser','vscode'}):
+                if application is None and (command.action != 'open_app' or payload.app_id not in self.allowed_apps.intersection({'browser','vscode'})):
                     return CommandResult(command_id=command_id, success=False, message='Приложение не установлено или запрещено на этом компьютере.', error_code='APP_NOT_AVAILABLE').model_dump()
             if command.action == 'open_path':
                 path = Path(payload.path).expanduser().resolve(strict=True)
@@ -49,7 +50,7 @@ class CommandExecutor:
             if expired():
                 return CommandResult(command_id=command_id, success=False,
                     message='Запрос больше не действителен.', error_code='COMMAND_EXPIRED').model_dump()
-            if policy == 'ask':
+            if policy == 'ask' or command.action == 'capture_screen':
                 details = payload.model_dump()
                 if application is not None:
                     details['app_name'] = application.name
@@ -71,6 +72,12 @@ class CommandExecutor:
                     self.platform.open_installed_app(payload.app_id)
                 else:
                     self.platform.open_app(payload.app_id)
+            elif command.action in {'close_app', 'minimize_app'}:
+                data = self.platform.manage_app(payload.app_id, command.action)
+            elif command.action == 'capture_screen':
+                data = self.platform.capture_screen()
+                if expired():
+                    return CommandResult(command_id=command_id, success=False, message='Запрос больше не действителен; снимок не передан.', error_code='COMMAND_EXPIRED').model_dump()
             elif command.action == 'open_path':
                 # Recheck symlinks after the user has spent time on the dialog.
                 resolved = Path(payload.path).resolve(strict=True)
@@ -81,9 +88,13 @@ class CommandExecutor:
         except (ValidationError, ValueError):
             return CommandResult(command_id=command_id, success=False, message="Command rejected by Agent policy",
                                  error_code="INVALID_COMMAND").model_dump()
+        except WindowNotFoundError:
+            return CommandResult(command_id=command_id, success=False, message='Открытые окна этого приложения не найдены.', error_code='APP_NOT_RUNNING').model_dump()
+        except NotImplementedError:
+            return CommandResult(command_id=command_id, success=False, message='Действие не поддерживается текущим рабочим окружением.', error_code='PLATFORM_UNSUPPORTED').model_dump()
         except PermissionError:
             return CommandResult(command_id=command_id, success=False,
-                                 message="Allow Delta Agent access to this folder in operating system privacy settings",
+                                 message=('Разрешите Delta Agent запись экрана в настройках приватности системы.' if command.action == 'capture_screen' else 'Разрешите Delta Agent доступ к приложению или папке в настройках системы.'),
                                  error_code="LOCAL_PERMISSION_REQUIRED").model_dump()
         except TimeoutExpired:
             return CommandResult(command_id=command_id, success=False,

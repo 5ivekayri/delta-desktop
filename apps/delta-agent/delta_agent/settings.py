@@ -57,7 +57,9 @@ class DesktopSettings(BaseModel):
     command_permissions: dict[Action, Literal['allow', 'ask', 'deny']] = Field(default_factory=dict)
 
     def permission(self, action):
-        return self.command_permissions.get(action, 'ask' if self.access_mode == 'confirm' else 'allow')
+        if action == 'capture_screen':
+            return 'deny' if self.command_permissions.get(action) == 'deny' else 'ask'
+        return self.command_permissions.get(action, 'ask' if self.access_mode == 'confirm' or action == 'close_app' else 'allow')
 
     @field_validator('server')
     @classmethod
@@ -94,7 +96,8 @@ class DesktopSettings(BaseModel):
         if self.allowed_roots:
             result.append('open_path')
         if self.allowed_apps or self.allow_installed_apps:
-            result.append('open_app')
+            result.extend(['open_app', 'close_app', 'minimize_app'])
+        result.append('capture_screen')
         return [action for action in result if self.permission(action) != "deny"]
 
 

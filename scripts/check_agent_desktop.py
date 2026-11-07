@@ -29,6 +29,16 @@ def main():
         assert window.username.isVisible() and window.password.isVisible()
         assert not window.server.isVisible() and not window.roots.isVisible()
         assert not window.log.isVisible() and not window.devices.isVisible()
+        with patch('delta_agent.inventory.inspect_applications', return_value=[{
+            'name': 'Visual Studio Code', 'aliases': ['vscode'], 'path': '/local/app.desktop',
+            'status': 'catalogued', 'access': 'ask', 'reason': 'Launcher found'}]):
+            window.refresh_inventory()
+            assert window.inventory_list.count() == 1
+            window.inventory_search.setText('vscode')
+            assert window.inventory_list.count() == 1
+            window.inventory_search.setText('not-installed')
+            assert window.inventory_list.count() == 0
+            window.inventory_search.clear()
         window.open_settings()
         app.processEvents()
         assert window.access_mode.isVisible() and window.roots.isVisible()

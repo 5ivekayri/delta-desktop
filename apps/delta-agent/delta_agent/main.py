@@ -36,15 +36,17 @@ async def run_agent(url: str, token: str, name: str | None, config_dir: Path, al
     capabilities = adapter.capabilities if capabilities is None else capabilities
     info = adapter.get_system_info()
     executor = CommandExecutor(adapter, allowed_roots, capabilities, allowed_apps, permission, confirm)
-    applications = [item.public() for item in executor.applications().values()] if 'open_app' in capabilities else []
-    applications += [{'id': key, 'name': label} for key, label in [('browser','Браузер'),('vscode','Visual Studio Code')]
-                     if key in executor.allowed_apps and 'open_app' in capabilities
-                     and not any(label.casefold() == item['name'].casefold() for item in applications)]
-    registration = Registration(device_uid=persistent_uid(config_dir), display_name=name or info["hostname"],
-                                capabilities=capabilities, applications=applications[:1024], approval_timeout=60 if confirm else 0, **info)
     delay = 1
     while True:
         try:
+            applications = [item.public() for item in executor.applications().values()] if 'open_app' in capabilities else []
+            applications += [{'id': key, 'name': label} for key, label in [('browser','Браузер'),('vscode','Visual Studio Code')]
+                             if key in executor.allowed_apps and 'open_app' in capabilities
+                             and not any({key.casefold(), label.casefold()} &
+                                         {value.casefold() for value in [item['name'], *item.get('aliases', [])]}
+                                         for item in applications)]
+            registration = Registration(device_uid=persistent_uid(config_dir), display_name=name or info["hostname"],
+                                        capabilities=capabilities, applications=applications[:1024], approval_timeout=60 if confirm else 0, **info)
             event('connecting')
             async with connect(url, additional_headers={"Authorization": f"Bearer {token}"},
                                max_size=1_000_000, open_timeout=10) as socket:

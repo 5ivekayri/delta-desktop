@@ -31,7 +31,7 @@ def desktop_request(settings, path, body=None):
     request = Request(url, data=data, headers={'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + settings.token.get_secret_value()})
     try:
-        with urlopen(request, timeout=90 if body else 15) as response:
+        with urlopen(request, timeout=150 if body else 15) as response:
             return json.load(response)
     except HTTPError as error:
         if error.code == 401:

@@ -9,7 +9,7 @@ from delta_agent.platforms import get_platform
 def test_platform_detection(name, expected):
     adapter = get_platform(name)
     assert adapter.os_name == expected
-    assert set(adapter.capabilities) == {'system_info','open_url','open_path','open_app'}
+    assert set(adapter.capabilities) == {'system_info','open_url','open_path','open_app','close_app','minimize_app','capture_screen'}
 
 
 def test_allowlist_urls_and_paths(tmp_path):

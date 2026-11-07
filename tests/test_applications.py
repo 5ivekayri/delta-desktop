@@ -58,3 +58,26 @@ def test_removed_app_is_not_launched_after_approval(tmp_path):
     executor=CommandExecutor(adapter,[],allowed_apps=['*'],permission=lambda _:'ask',confirm=lambda *args:True)
     assert not executor.execute({'command_id':'1','action':'open_app','payload':{'app_id':app.id}})['success']
     adapter.run.assert_not_called()
+
+
+@pytest.mark.parametrize('os_name', ['linux', 'macos', 'windows'])
+def test_vscode_common_names_across_platforms(tmp_path, os_name):
+    if os_name == 'macos':
+        make_app(tmp_path, 'Visual Studio Code', 'com.microsoft.VSCode')
+    elif os_name == 'windows':
+        (tmp_path/'Visual Studio Code.lnk').touch()
+    else:
+        (tmp_path/'com.visualstudio.code.desktop').write_text(
+            '[Desktop Entry]\nType=Application\nName=Visual Studio Code\nExec=flatpak run com.visualstudio.code %U\n')
+    app = next(iter(discover(os_name, [tmp_path]).values()))
+    for name in ['vscode', 'vs code', 'вс код']:
+        assert name in app.public()['aliases']
+    adapter = Mock()
+    adapter.capabilities = ['open_app']
+    adapter.installed_applications.return_value = {app.id: app}
+    confirm = Mock(return_value=True)
+    result = CommandExecutor(adapter, [], allowed_apps=['*'], permission=lambda _: 'ask', confirm=confirm).execute(
+        {'command_id': 'alias', 'action': 'open_app', 'payload': {'app_id': app.id}})
+    assert result['success']
+    assert confirm.call_args.args[1]['app_name'] == 'Visual Studio Code'
+    adapter.open_installed_app.assert_called_once_with(app.id)
