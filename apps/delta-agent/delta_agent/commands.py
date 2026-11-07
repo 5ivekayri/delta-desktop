@@ -10,7 +10,7 @@ from .window_actions import WindowNotFoundError
 
 class CommandExecutor:
     def __init__(self, platform: BasePlatformAdapter, allowed_roots: list[str], capabilities=None, allowed_apps=None, permission=None, confirm=None):
-        self.permission = permission or (lambda action: "allow")
+        self.permission = permission or (lambda action: "ask" if action == "capture_screen" else "allow")
         self.confirm = confirm
         self.platform = platform
         self.allowed_roots = [Path(root).expanduser().resolve() for root in allowed_roots]
@@ -50,7 +50,7 @@ class CommandExecutor:
             if expired():
                 return CommandResult(command_id=command_id, success=False,
                     message='Запрос больше не действителен.', error_code='COMMAND_EXPIRED').model_dump()
-            if policy == 'ask' or command.action == 'capture_screen':
+            if policy == 'ask':
                 details = payload.model_dump()
                 if application is not None:
                     details['app_name'] = application.name

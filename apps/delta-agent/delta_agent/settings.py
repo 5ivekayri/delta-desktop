@@ -57,9 +57,13 @@ class DesktopSettings(BaseModel):
     command_permissions: dict[Action, Literal['allow', 'ask', 'deny']] = Field(default_factory=dict)
 
     def permission(self, action):
-        if action == 'capture_screen':
-            return 'deny' if self.command_permissions.get(action) == 'deny' else 'ask'
-        return self.command_permissions.get(action, 'ask' if self.access_mode == 'confirm' or action == 'close_app' else 'allow')
+        return self.command_permissions.get(action, 'ask' if self.access_mode == 'confirm' else 'allow')
+
+    def enable_full_access(self):
+        """A local explicit choice replaces ask overrides, preserving denials."""
+        self.access_mode = 'full'
+        self.command_permissions = {action: policy for action, policy in self.command_permissions.items()
+                                    if policy != 'ask'}
 
     @field_validator('server')
     @classmethod

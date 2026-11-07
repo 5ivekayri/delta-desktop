@@ -12,7 +12,7 @@ class BasePlatformAdapter(ABC):
 
     def get_system_info(self) -> dict:
         return {"hostname": socket.gethostname(), "os": self.os_name,
-                "architecture": platform.machine(), "username": getpass.getuser(), "agent_version": "0.3.0"}
+                "architecture": platform.machine(), "username": getpass.getuser(), "agent_version": "0.3.1"}
 
     def open_url(self, url: str):
         if not webbrowser.open(url):

@@ -37,20 +37,19 @@ def test_close_missing_and_unpermitted_never_runs(tmp_path):
     adapter.manage_app.assert_not_called()
 
 
-def test_capture_always_requires_consent_and_honors_deny():
+def test_capture_obeys_saved_policy():
     adapter=Mock();adapter.capabilities=['capture_screen'];adapter.capture_screen.return_value={'image_url':'test'}
     message={'command_id':'1','action':'capture_screen','payload':{}}
-    for policy in ['allow','ask','deny']:
+    for policy in ['ask','deny']:
         confirm=Mock(return_value=False)
         result=CommandExecutor(adapter,[],permission=lambda _:policy,confirm=confirm).execute(message)
         assert not result['success']
         adapter.capture_screen.assert_not_called()
         assert confirm.call_count==(0 if policy=='deny' else 1)
-    confirm=Mock(return_value=True)
+    confirm=Mock(side_effect=AssertionError('Saved allow must not prompt'))
     assert CommandExecutor(adapter,[],permission=lambda _:'allow',confirm=confirm).execute(message)['success']
     adapter.capture_screen.assert_called_once()
-    s=DesktopSettings(server='http://localhost:8081',token='test-token-123456789',name='pc',access_mode='full',command_permissions={'capture_screen':'allow'})
-    assert s.permission('capture_screen')=='ask' and s.permission('close_app')=='ask'
+    confirm.assert_not_called()
 
 
 def test_capture_encoding_is_bounded():

@@ -1,4 +1,4 @@
-"""One-shot bounded screen capture, called only after explicit local approval."""
+"""One-shot bounded screen capture, called after the locally saved permission policy allows it."""
 import base64
 import json
 from pathlib import Path
@@ -38,6 +38,9 @@ def capture_screen(os_name):
                               stderr=subprocess.PIPE,env=host_environment(),shell=False)
         return encode_image(QImage.fromData(result.stdout))
     if os_name == 'macos':
+        from .macos_permissions import screen_recording_allowed
+        if not screen_recording_allowed():
+            raise PermissionError('Enable Delta Agent Screen Recording in macOS Privacy settings')
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'screen.png'
             subprocess.run(['/usr/sbin/screencapture','-x','-t','png','-D','1',str(path)],

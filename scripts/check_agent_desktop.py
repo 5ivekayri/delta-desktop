@@ -47,6 +47,16 @@ def main():
         app.processEvents()
         assert window.server.isVisible()
         assert not window.log.isVisible()
+        window.command_permissions['close_app'].setCurrentIndex(window.command_permissions['close_app'].findData('ask'))
+        window.command_permissions['capture_screen'].setCurrentIndex(window.command_permissions['capture_screen'].findData('ask'))
+        window.select_full_access()
+        assert window.access_mode.currentData() == 'full'
+        assert window.command_permissions['close_app'].currentData() == 'inherit'
+        assert window.command_permissions['capture_screen'].currentData() == 'inherit'
+        assert window.command_permissions['open_url'].currentData() == 'deny'
+        with patch.object(window, 'save_preferences') as save:
+            window.full_access_button.click()
+            save.assert_called_once()
         window.settings_dialog.hide()
         window.pages.setCurrentIndex(1)
         app.processEvents()

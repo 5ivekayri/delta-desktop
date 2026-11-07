@@ -403,15 +403,13 @@ class AgentWindow(QMainWindow):
         self.access_mode.addItem('С подтверждениями', 'confirm')
         self.access_mode.addItem('Полный доступ', 'full')
         form.addRow('Режим', self.access_mode)
-        hint = QLabel('Полный доступ выполняет разрешённые команды без вопросов.\nОтдельные запреты и ограничения папок сохраняются.')
+        hint = QLabel('Полный доступ сохраняется на этом компьютере и выполняет разрешённые команды без повторных вопросов, включая закрытие приложений и снимок экрана для OpenRouter. Явные запреты и ограничения папок сохраняются. Вернуть подтверждения можно сменой режима.')
         hint.setWordWrap(True)
         form.addRow(hint)
         self.command_permissions = {}
         for action, label in COMMAND_LABELS.items():
             choice = QComboBox()
             options = [('По общему режиму', 'inherit'), ('Запретить', 'deny'), ('Спрашивать', 'ask'), ('Разрешить', 'allow')]
-            if action == 'capture_screen':
-                options = [('Всегда спрашивать', 'inherit'), ('Запретить', 'deny')]
             for text, value in options:
                 choice.addItem(text, value)
             self.command_permissions[action] = choice
@@ -419,9 +417,20 @@ class AgentWindow(QMainWindow):
         def update_mode_labels():
             label = 'По режиму: спрашивать' if self.access_mode.currentData() == 'confirm' else 'По режиму: разрешить'
             for action, choice in self.command_permissions.items():
-                choice.setItemText(0, 'Всегда спрашивать' if action == 'capture_screen' else 'По умолчанию: спрашивать' if action == 'close_app' else label)
+                choice.setItemText(0, label)
         self.access_mode.currentIndexChanged.connect(update_mode_labels)
         update_mode_labels()
+        self.access_mode.activated.connect(lambda _: self.select_full_access() if self.access_mode.currentData() == 'full' else None)
+        self.full_access_button = QPushButton('Включить полный доступ и сохранить')
+        self.full_access_button.clicked.connect(self.enable_full_access)
+        form.addRow(self.full_access_button)
+        self.permission_status = QLabel('')
+        self.permission_status.setWordWrap(True)
+        form.addRow(self.permission_status)
+        if sys.platform == 'darwin':
+            permissions_button = QPushButton('Настроить доступ к экрану macOS')
+            permissions_button.clicked.connect(lambda: self.setup_os_permissions(force=True))
+            form.addRow(permissions_button)
         self.command_permissions['open_url'].setCurrentIndex(self.command_permissions['open_url'].findData('deny'))
         form.addRow(QLabel('Доступные приложения и папки'))
         self.server = QLineEdit('http://localhost:8081')
@@ -569,6 +578,29 @@ class AgentWindow(QMainWindow):
         self.target.addItem('Этот компьютер', None)
         self.pages.setCurrentIndex(0)
 
+    def select_full_access(self):
+        self.access_mode.setCurrentIndex(self.access_mode.findData('full'))
+        for choice in self.command_permissions.values():
+            if choice.currentData() == 'ask':
+                choice.setCurrentIndex(choice.findData('inherit'))
+
+    def enable_full_access(self):
+        self.select_full_access()
+        self.save_preferences()
+
+    def setup_os_permissions(self, force=False):
+        if sys.platform != 'darwin':
+            return
+        from .macos_permissions import request_screen_recording_once, open_screen_settings
+        try:
+            allowed = request_screen_recording_once(self.directory, retry=force)
+            self.permission_status.setText('macOS: доступ к экрану разрешён.' if allowed else
+                'macOS: включите Delta Agent в Конфиденциальность и безопасность → Запись экрана. После изменения macOS может потребовать перезапуск приложения.')
+            if force and not allowed:
+                open_screen_settings()
+        except (OSError, AttributeError):
+            self.permission_status.setText('Проверьте доступ к экрану Delta Agent в настройках конфиденциальности macOS.')
+
     def save_preferences(self):
         try:
             old = self.saved
@@ -688,6 +720,8 @@ class AgentWindow(QMainWindow):
     def start_worker(self, settings, password=""):
         if self.worker:
             return
+        if settings.access_mode == 'full' and settings.permission('capture_screen') != 'deny':
+            self.setup_os_permissions()
         self.login_error.clear()
         self.connect_button.setText('Входим…')
         self.connect_button.setEnabled(False)
