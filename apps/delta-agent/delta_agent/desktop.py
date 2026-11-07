@@ -1,3 +1,4 @@
+from pathlib import Path
 """Cross-platform Qt desktop client for the existing Agent protocol."""
 import asyncio
 import html
