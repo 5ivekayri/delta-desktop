@@ -69,3 +69,34 @@ Local command policy is applied after payload/app/root validation. Declines retu
 advertised. OS actions are never automatically replayed. Receipt continues during
 approval so a disconnected session cancels pending approvals. A running, already
 approved OS action cannot be undone by disconnecting.
+
+## Installed application catalogue (Agent 0.2.0)
+
+Registration optionally includes `applications`: a list of `{id,name,aliases}`
+(up to 1024 entries). Missing/null means legacy Agent; an empty list means no
+permitted applications. Core keeps this catalogue on the live connection, not in
+the database. Reconnect/restart Agent after installing/removing apps or changing
+permissions. Core must be updated before deploying this client.
+
+`open_app.app_id` accepts bounded logical IDs (`[A-Za-z0-9_.-]+`), including
+`installed-<24 hex characters>`. The Agent maps IDs only to locally discovered
+installed apps and resolves again before launch. No remote path, argument list,
+shell, executable text or URL is accepted as an application ID. macOS uses
+`/usr/bin/open -a` with a discovered .app bundle; Linux uses `gio launch` for an
+installed .desktop entry; Windows uses Start Menu .lnk entries. Catalogue scanning
+skips links that escape the configured installation directories. Filesystem paths
+are not transmitted in the catalogue. Some apps outside standard install locations
+will require moving/installing them into those locations.
+
+`allow_installed_apps=true` enables discovered applications, while local
+open_app deny/ask/allow, confirmation, expiry and disconnect cancellation still
+apply. Defaults use confirmation. Existing explicit deny remains deny. The
+confirmation dialog shows the locally resolved application name. Success means
+the OS launcher accepted the command; it is not a screenshot/foreground guarantee.
+
+Core exposes `devices.list_apps` and `devices.open_app` registered tools. An
+explicit target overrides the selected device. Without a target Core only launches
+a unique permitted app on one connected, catalogue-capable device. Ambiguous
+targets/names require clarification; an explicit offline/unsupported target never
+falls back to another computer. Legacy Agents return AGENT_UPDATE_REQUIRED, not
+a generic model refusal. A failed command is never presented as a successful open.
