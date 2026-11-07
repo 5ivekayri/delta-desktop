@@ -27,7 +27,7 @@ def test_invalid_server_url(url):
 
 def test_settings_roundtrip_and_default_permissions(tmp_path):
     s = DesktopSettings(server='http://localhost:8081', token='test-token-only-123456', name='My Mac')
-    assert s.capabilities == ['system_info', 'open_app', 'close_app', 'minimize_app', 'capture_screen']
+    assert s.capabilities == ['system_info', 'open_app', 'close_app', 'minimize_app', 'capture_screen', 'workspace_files']
     assert s.permission('open_app') == 'ask'
     assert not s.model_copy(update={'allow_installed_apps':False}).allow_installed_apps
     assert 'test-token' not in repr(s)

@@ -78,6 +78,9 @@ class DesktopOpener(QObject):
 
 
 COMMAND_LABELS = {
+    'workspace_files': 'Файлы рабочих пространств Delta',
+    'search_files': 'Поиск файлов в разрешённых папках',
+    'read_file': 'Передача файла в рабочее пространство Delta',
     'system_info': 'Сведения о компьютере',
     'open_url': 'Открытие ссылок',
     'open_path': 'Открытие папок',
@@ -125,6 +128,8 @@ class ApprovalBroker(QObject):
         layout.addWidget(title)
         layout.addWidget(QLabel('Запрос от подключённого сервера Delta на этот компьютер.'))
         detail = payload.get('app_name') or payload.get('url') or payload.get('path') or {'browser':'Браузер','vscode':'Visual Studio Code'}.get(payload.get('app_id'), 'Имя компьютера, система и версия агента')
+        if action in {'workspace_files','search_files','read_file'}:
+            detail = str(payload.get('path') or payload.get('query') or payload.get('workspace_id')) + '\nДоступ ограничен рабочими пространствами Delta и разрешёнными папками.'
         if action == 'capture_screen':
             detail = 'Сделать один снимок текущего экрана и отправить его модели через OpenRouter для описания. На снимок может попасть личная информация. Изображение не сохраняется в истории Delta; действуют правила обработки данных OpenRouter и провайдера модели.'
         target = QTextEdit()
@@ -455,7 +460,11 @@ class AgentWindow(QMainWindow):
         remove.clicked.connect(lambda: self.roots.takeItem(self.roots.currentRow()))
         buttons.addWidget(add)
         buttons.addWidget(remove)
+        standard = QPushButton('Documents / Downloads / Desktop')
+        standard.clicked.connect(self.add_standard_roots)
+        buttons.addWidget(standard)
         form.addRow(buttons)
+        form.addRow(QLabel('Поиск и импорт файлов выполняются только в разрешённых папках выше.'))
         self.autostart = QCheckBox('Запускать при входе в систему')
         self.auto_connect = QCheckBox('Подключаться автоматически')
         self.auto_connect.setChecked(True)
@@ -584,7 +593,15 @@ class AgentWindow(QMainWindow):
             if choice.currentData() == 'ask':
                 choice.setCurrentIndex(choice.findData('inherit'))
 
+    def add_standard_roots(self):
+        existing={self.roots.item(i).text() for i in range(self.roots.count())}
+        for name in ('Documents','Downloads','Desktop','Документы','Загрузки','Рабочий стол'):
+            folder=Path.home()/name
+            if folder.is_dir() and str(folder.resolve()) not in existing:
+                self.roots.addItem(str(folder.resolve()));existing.add(str(folder.resolve()))
+
     def enable_full_access(self):
+        if not self.roots.count():self.add_standard_roots()
         self.select_full_access()
         self.save_preferences()
 

@@ -8,11 +8,11 @@ import webbrowser
 
 class BasePlatformAdapter(ABC):
     os_name = "unknown"
-    capabilities = ["system_info", "open_url", "open_path", "open_app", "close_app", "minimize_app", "capture_screen"]
+    capabilities = ["system_info", "open_url", "open_path", "open_app", "close_app", "minimize_app", "capture_screen", "workspace_files", "search_files", "read_file"]
 
     def get_system_info(self) -> dict:
         return {"hostname": socket.gethostname(), "os": self.os_name,
-                "architecture": platform.machine(), "username": getpass.getuser(), "agent_version": "0.3.1"}
+                "architecture": platform.machine(), "username": getpass.getuser(), "agent_version": "0.4.0"}
 
     def open_url(self, url: str):
         if not webbrowser.open(url):

@@ -98,10 +98,10 @@ class DesktopSettings(BaseModel):
         if self.allow_urls:
             result.append('open_url')
         if self.allowed_roots:
-            result.append('open_path')
+            result.extend(['open_path','search_files','read_file'])
         if self.allowed_apps or self.allow_installed_apps:
             result.extend(['open_app', 'close_app', 'minimize_app'])
-        result.append('capture_screen')
+        result.extend(['capture_screen','workspace_files'])
         return [action for action in result if self.permission(action) != "deny"]
 
 

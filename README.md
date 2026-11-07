@@ -51,3 +51,5 @@ Workflow GitHub Actions запускается вручную. Windows runtime �
 окно Finder проверяется после установки новой сборки на Mac.
 
 [Управление приложениями и описание экрана](docs/DESKTOP_ACTIONS.md)
+
+[Workspace files and permissions](docs/WORKSPACE_FILES.md).

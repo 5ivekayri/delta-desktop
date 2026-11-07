@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from delta_contracts.devices import CommandMessage, CommandResult, PAYLOAD_SCHEMAS
 from .platforms.base import BasePlatformAdapter
 from .window_actions import WindowNotFoundError
+from delta_contracts.workspace_files import FileStore, FileConflict, permitted_source, search_files, pack, validate_content, MAX_FILE
 
 
 class CommandExecutor:
@@ -14,6 +15,7 @@ class CommandExecutor:
         self.confirm = confirm
         self.platform = platform
         self.allowed_roots = [Path(root).expanduser().resolve() for root in allowed_roots]
+        self.file_store = FileStore(Path.home()/'.delta-agent-desktop/workspaces')
         self.capabilities = set(platform.capabilities if capabilities is None else capabilities)
         self.allowed_apps = set(['browser', 'vscode', '*'] if allowed_apps is None else allowed_apps)
 
@@ -63,7 +65,16 @@ class CommandExecutor:
                 return CommandResult(command_id=command_id, success=False,
                     message='Запрос больше не действителен.', error_code='COMMAND_EXPIRED').model_dump()
             data = {}
-            if command.action == 'system_info':
+            if command.action == 'workspace_files':
+                data = self.file_store.execute(payload)
+            elif command.action == 'search_files':
+                data = search_files(payload.query, self.allowed_roots, expired)
+            elif command.action == 'read_file':
+                source = permitted_source(payload.path, self.allowed_roots)
+                with source.open('rb') as file: content = file.read(MAX_FILE+1)
+                validate_content(source.name, content)
+                data = pack(source.name, content)
+            elif command.action == 'system_info':
                 data = self.platform.get_system_info()
             elif command.action == 'open_url':
                 self.platform.open_url(payload.url)
@@ -85,6 +96,10 @@ class CommandExecutor:
                     raise ValueError('Path changed while awaiting approval')
                 self.platform.open_path(str(resolved))
             return CommandResult(command_id=command_id, success=True, message=f"{command.action} completed", data=data).model_dump()
+        except FileConflict:
+            return CommandResult(command_id=command_id, success=False, message='Файл изменился. Обновите содержимое перед сохранением.', error_code='FILE_CONFLICT').model_dump()
+        except FileNotFoundError:
+            return CommandResult(command_id=command_id, success=False, message='Файл не найден.', error_code='FILE_NOT_FOUND').model_dump()
         except (ValidationError, ValueError):
             return CommandResult(command_id=command_id, success=False, message="Command rejected by Agent policy",
                                  error_code="INVALID_COMMAND").model_dump()

@@ -36,6 +36,8 @@ async def run_agent(url: str, token: str, name: str | None, config_dir: Path, al
     capabilities = adapter.capabilities if capabilities is None else capabilities
     info = adapter.get_system_info()
     executor = CommandExecutor(adapter, allowed_roots, capabilities, allowed_apps, permission, confirm)
+    from delta_contracts.workspace_files import FileStore
+    executor.file_store = FileStore(config_dir/"workspaces")
     delay = 1
     while True:
         try:
@@ -49,7 +51,7 @@ async def run_agent(url: str, token: str, name: str | None, config_dir: Path, al
                                         capabilities=capabilities, applications=applications[:1024], approval_timeout=60 if confirm else 0, **info)
             event('connecting')
             async with connect(url, additional_headers={"Authorization": f"Bearer {token}"},
-                               max_size=1_000_000, open_timeout=10) as socket:
+                               max_size=16*1024*1024, open_timeout=10) as socket:
                 await socket.send(registration.model_dump_json())
                 ack = json.loads(await asyncio.wait_for(socket.recv(), 10))
                 if ack.get("type") != "register_ack":
